@@ -1,6 +1,7 @@
 package com.wingoku.bidirect.client;
 
 import android.app.Fragment;
+import android.content.Context;
 import android.os.Bundle;
 import android.os.Looper;
 import android.text.TextUtils;
@@ -9,6 +10,7 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -101,12 +103,25 @@ public class MainActivityFragment extends Fragment {
         shutdownChannel();
     }
 
+    @OnClick(R.id.main_text_log)
+    public void onOutsideClicked(View view) {
+        if (view != null) {
+            InputMethodManager imm = (InputMethodManager)getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
+            imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
+        }
+    }
+
     TimerTask timerTaskObj;
     int mTimesBenchmarkRanSofar;
     int numberOfTimesToRunBenchmark;
     @OnClick(R.id.button_start_benchmark)
     public void benchmarkGRPCConnection() {
         numberOfTimesToRunBenchmark = Integer.valueOf(mConnectionTimesET.getText().toString());
+        if(numberOfTimesToRunBenchmark <= 0) {
+            mLogText.setText("Benchmark Ran 0 Times");
+            return;
+        }
+
         mTimesBenchmarkRanSofar = 0;
         Timer timerObj = new Timer();
         timerTaskObj = new TimerTask() {
