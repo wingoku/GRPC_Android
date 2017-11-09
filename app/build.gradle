@@ -1,0 +1,124 @@
+buildscript {
+    repositories {
+        jcenter()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:2.3.3'
+        classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.2'
+    }
+}
+
+allprojects {
+    repositories {
+        jcenter()
+    }
+}
+
+apply plugin: 'com.android.application'
+apply plugin: 'com.google.protobuf'
+
+android {
+    compileSdkVersion 22
+    buildToolsVersion '26.0.2'
+
+    defaultConfig {
+        applicationId "com.wingoku.grpc"
+        minSdkVersion 21
+        targetSdkVersion 22
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    lintOptions {
+        disable 'InvalidPackage', 'HardcodedText'
+        textReport true
+        textOutput "stdout"
+    }
+}
+
+/*protobuf {
+    protoc {
+        artifact = 'com.google.protobuf:protoc:3.4.0'
+    }
+    plugins {
+        grpc {
+            artifact = "io.grpc:protoc-gen-grpc-java:1.7.0"
+        }
+    }
+    generateProtoTasks {
+        all()*.plugins {
+            grpc {
+                // To generate deprecated interfaces and static bindService method,
+                // turn the enable_deprecated option to true below:
+                option 'enable_deprecated=false'
+            }
+        }
+    }
+}*/
+protobuf {
+    protoc {
+        artifact = 'com.google.protobuf:protoc:3.4.0'
+    }
+    plugins {
+        javalite {
+            artifact = "com.google.protobuf:protoc-gen-javalite:3.0.0"
+        }
+        grpc {
+            artifact = 'io.grpc:protoc-gen-grpc-java:1.7.0' // CURRENT_GRPC_VERSION
+        }
+    }
+    generateProtoTasks {
+        all().each { task ->
+            task.plugins {
+                javalite {}
+                grpc {
+                    // Options added to --grpc_out
+                    option 'lite'
+                    option 'enable_deprecated=false'
+                }
+            }
+        }
+    }
+}
+
+/*// Inform IntelliJ projects about the generated code.
+apply plugin: 'idea'
+
+idea {
+    module {
+        // Not using generatedSourceDirs because of
+        // https://discuss.gradle.org/t/support-for-intellij-2016/15294/8
+        println "project dir is : ${projectDir}"
+        sourceDirs += file("${projectDir}/build/generated/source/proto/main/javalite");
+        sourceDirs += file("${projectDir}/build/generated/source/proto/main/grpc");
+    }
+}*/
+
+dependencies {
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+//    compile project(':simpleserver')
+//    compile(project(':simpleserverumer')){ exclude group: 'com.google.android.gms' }
+    compile 'com.jakewharton:butterknife:8.8.1'
+    annotationProcessor 'com.jakewharton:butterknife-compiler:8.8.1'
+    compile 'com.squareup.okhttp:okhttp:2.5.0'
+    compile 'com.squareup.picasso:picasso:2.5.2'
+
+    /* I COPIED THESE DEPENDENCIES FROMANDROID-GRPC-OFFICIAL ANDROID APP*/
+    // You need to build grpc-java to obtain these libraries below.
+    compile "com.google.api.grpc:proto-google-common-protos:0.1.9"
+    compile 'io.grpc:grpc-okhttp:1.7.0' // CURRENT_GRPC_VERSION
+    compile 'io.grpc:grpc-protobuf-lite:1.7.0' // CURRENT_GRPC_VERSION
+    compile 'io.grpc:grpc-stub:1.7.0' // CURRENT_GRPC_VERSION
+//    compile 'javax.annotation:javax.annotation-api:1.2'
+
+
+    compile 'javax.annotation:javax.annotation-api:1.2'
+    annotationProcessor 'com.google.auto.value:auto-value:1.1'
+//    compile group: 'io.grpc', name: 'grpc-all', version: "1.7.0"
+}
