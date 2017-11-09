@@ -1,4 +1,4 @@
-package com.wingoku.grpc;
+package com.wingoku.bidirect.client;
 
 /**
  * Copyright (c) 2015, LOVOO GmbH
@@ -35,8 +35,7 @@ import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
 
-import com.google.protobuf.Descriptors;
-import com.wingoku.grpc.hellogrpc.R;
+import com.wingoku.bidirect.hellogrpc.R;
 
 /**
  * Just a very simple activity acting as a holder for the fragment which is responsible for

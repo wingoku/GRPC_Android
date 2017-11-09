@@ -1,8 +1,10 @@
 <resources>
-    <string name="app_name">Hello GRPC</string>
+    <string name="app_name">Wingoku GRPC</string>
     <string name="hello_world">Hello GRPC world!</string>
     <string name="action_settings">Settings</string>
-    <string name="hello_server">Hello server!</string>
+    <string name="hello_server">Message server!</string>
     <string name="main_edit_label_server_host">GRPC server host</string>
     <string name="main_edit_label_server_port">port</string>
+    <string name="string_send_request">Send Request</string>
+    <string name="string_open_channel">Open Channel</string>
 </resources>

@@ -1,4 +1,4 @@
-package com.wingoku.grpc.hellogrpc;
+package com.wingoku.bidirect.hellogrpc;
 
 import android.app.Application;
 import android.test.ApplicationTestCase;

@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package com.wingoku.grpc;
+package com.wingoku.bidirect;
 
 option java_multiple_files = true;
 
