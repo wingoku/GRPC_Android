@@ -32,6 +32,18 @@ import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
+import io.reactivex.Completable;
+import io.reactivex.Observable;
+import io.reactivex.ObservableSource;
+import io.reactivex.Scheduler;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.disposables.CompositeDisposable;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Action;
+import io.reactivex.functions.Function;
+import io.reactivex.functions.Predicate;
+import io.reactivex.observers.DisposableObserver;
+import io.reactivex.schedulers.Schedulers;
 
 
 /**
@@ -65,16 +77,25 @@ public class MainActivityFragment extends Fragment {
     @BindView(R.id.button_reconnect)
     Button mReconnectButton;
 
+    @BindView(R.id.button_start_benchmark)
+    Button mBenchmarkButton;
+
     //this list contains difference between connectionRequestTime and connectionEstablishedTime for N times
     private ArrayList<Long> timeDifferenceList;
+    private CompositeDisposable mCompositeDisposable;
 
 //    private ChannelImpl mChannel;
     private String mHost = "";
     private int mPort = -1;
 
+    private GRPCNetworkManager mGRPCManager;
+    private boolean isClientConnected = false;
+
     public MainActivityFragment () {
-        Log.e("wingoku", "constructor");
+        //Log.e("wingoku", "constructor");
         timeDifferenceList = new ArrayList<>();
+        mGRPCManager = new GRPCNetworkManager();
+        mCompositeDisposable = new CompositeDisposable();
     }
 
     @Override
@@ -94,13 +115,7 @@ public class MainActivityFragment extends Fragment {
     @Override
     public void onResume() {
         super.onResume();
-        Log.e("wingoku", "onResume: benchCycles: "+ numberOfTimesToRunBenchmark);
-    }
-
-    @Override
-    public void onDestroyView () {
-        super.onDestroyView();
-        shutdownChannel();
+        //Log.e("wingoku", "onResume: benchCycles: "+ numberOfTimesToRunBenchmark);
     }
 
     @OnClick(R.id.main_text_log)
@@ -114,6 +129,7 @@ public class MainActivityFragment extends Fragment {
     TimerTask timerTaskObj;
     int mTimesBenchmarkRanSofar;
     int numberOfTimesToRunBenchmark;
+    private boolean BENCHMARK_MODE = false;
     @OnClick(R.id.button_start_benchmark)
     public void benchmarkGRPCConnection() {
         numberOfTimesToRunBenchmark = Integer.valueOf(mConnectionTimesET.getText().toString());
@@ -122,41 +138,32 @@ public class MainActivityFragment extends Fragment {
             return;
         }
 
-        mTimesBenchmarkRanSofar = 0;
-        Timer timerObj = new Timer();
-        timerTaskObj = new TimerTask() {
-            public void run() {
-                if(numberOfTimesToRunBenchmark<mTimesBenchmarkRanSofar)
-                    stopBenchmark();
+        Log.v("wingoku", "benchmarkGRPCConnection() :: limitOfBenchmarkCycles: "+ numberOfTimesToRunBenchmark);
+        //Log.v("wingokuBench", "number of times to run benchmark "+numberOfTimesToRunBenchmark);
 
-                mTimesBenchmarkRanSofar++;
-                Log.e("wingokuBenchMark", "Benchmark cycles: "+ mTimesBenchmarkRanSofar);
-                //perform your action here
-                if(channel != null)
-                    disconnectFromServerBenchmark();
-                reOpenChannelFromServerBenchmark();
-            }
-        };
-        timerObj.scheduleAtFixedRate(timerTaskObj, 0, 1000);
+        mTimesBenchmarkRanSofar = 0;
+        timeDifferenceList.clear();
+
+        disableButtonsAndEditText();
+
+        BENCHMARK_MODE = true;
+        sendRequestToServer();
     }
 
     String benchResult;
     private void stopBenchmark() {
-        timerTaskObj.cancel();
-
+        //Log.v("wingokuBench", "STOP BENCHMARK");
+        Log.e("wingoku", "stop benchmark");
+        BENCHMARK_MODE = false;
         long sum=0;
         for(long diff : timeDifferenceList) {
             sum+=diff;
         }
         float averageTime = (sum*1.0f/timeDifferenceList.size()*1.0f);
-        benchResult = "AverageTime took to establish "+timeDifferenceList.size()+" connections with server: "+ averageTime;
-
-        getActivity().runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                mLogText.setText(benchResult);
-            }
-        });
+        benchResult = "AverageTime took to establish "+(timeDifferenceList.size()-1)+" connections with server: "+ averageTime;
+        mLogText.setText(benchResult);
+        enableButtonsAndEditText();
+        mCompositeDisposable.dispose();
     }
 
     ManagedChannel channel;
@@ -166,259 +173,142 @@ public class MainActivityFragment extends Fragment {
     long connectionEstablishedTime; // in millisecond
 
     @OnClick(R.id.main_button_send_request)
-    public void sendRequestToServer () {
+    public void sendRequestToServer() {
 //        new SendHelloTask().execute();
-        Log.e("MainActivityFragment", "Send request to server");
+        //Log.e("MainActivityFragment", "Send request to server");
 //        onPreExecute();
-        if(channel == null) {
-//            mDisconnectButton.setEnabled(true);
-            connectionRequestTime = System.currentTimeMillis();
-//            Log.e("wingoku", "time in milliseconds: "+ System.currentTimeMillis());
-//            Log.e("MainActivityFragment", "Client requests server for connection at time (milli seconds): "+ connectionRequestTime);
-            channel = ManagedChannelBuilder.forAddress(mServerHostEditText.getText().toString(), Integer.valueOf(mServerPortEditText.getText().toString())).usePlaintext(true).build();
-//            ConnectivityState connectivityState = channel.getState(false);
-//            Log.e("wingoku", "ConnectivityState: "+connectivityState.name());
-            pollWhenClientConnectsToServer();
-            /*channel.notifyWhenStateChanged(connectivityState, new Runnable() {
-                @Override
-                public void run() {
-                    Log.e("wingoku", "onNotifyWhenStateChanged::ConnectivityState: "+channel.getState(false).name());
-                    long connectivityChangeTime = System.currentTimeMillis();
-                    Log.e("MainActivityFragment", "connectivity changed at time (msec): "+ System.currentTimeMillis()+ " (connectivityChangeTime - startTime): "+ (connectivityChangeTime-startingTime));
-                }
-            });*/
-//            mOpenChannelButton.setEnabled(false);
-//            Log.e("MainActivityFragment", "time Taken (milli seconds) to establish Connection: "+ (System.currentTimeMillis() - connectionRequestTime));
-            sendMessageToServer();
+        Log.d("wingoku", "createChannel()::Fragment. BenchCycle: "+ mTimesBenchmarkRanSofar);
+        mGRPCManager.createNewChannelForClient(mServerHostEditText.getText().toString(), Integer.valueOf(mServerPortEditText.getText().toString()));
+        connectionRequestTime = System.currentTimeMillis();
 
-//            Log.e("MainActivityFragment", "awaiting termination in 500 seconds");
-            // necessary in command line apps otherwise client terminates instantly before the requests made above go out on the network
-            /*try {
-                channel.awaitTermination(500, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }*/
-//            Log.e("MainActivityFragment", "after executing channelAwaitTerminiation");
-//            requestStreamObserver.onCompleted();
-        }
-    }
-
-    private void pollWhenClientConnectsToServer() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    while (channel != null) {
-                        ConnectivityState state = channel.getState(true);
-                        if (ConnectivityState.READY == ConnectivityState.valueOf(state.name())) {
-                            connectionEstablishedTime = System.currentTimeMillis();
-//                        Log.e("wingoku", "ConnectivityState = "+state.name()+"/CONNECTED!! at time(msec): "+ connectionEstablishedTime);
-                            long diff = connectionEstablishedTime - connectionRequestTime;
-                            Log.e("wingokuBenchMark", "connectionRequestTime: " + connectionRequestTime + " | connectionEstablishedTime: " + connectionEstablishedTime + " | difference: " + diff);
-                            timeDifferenceList.add(diff);
-                            break;
-                        }
+        Log.e("wingoku", "type of observable taken from Manager: "+ "");
+        Disposable disposable = mGRPCManager.getObservableForChannelConnectionAndDisconnectionState()
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribeWith(new DisposableObserver<GRPCNetworkManager.ConnectionStatus>() {
+                    @Override
+                    public void onNext(GRPCNetworkManager.ConnectionStatus connectionStatus) {
+                        //Log.e("wingoku", "inside on next");
+                        if(GRPCNetworkManager.ConnectionStatus.valueOf(connectionStatus.name()) == GRPCNetworkManager.ConnectionStatus.CONNECTED)
+                            onClientConnectedToTheServer();
+                        else
+                        if(GRPCNetworkManager.ConnectionStatus.valueOf(connectionStatus.name()) == GRPCNetworkManager.ConnectionStatus.DISCONNECTED)
+                            onClientDisconnectedToTheServer();
                     }
-                }
-                catch (Exception e) {
-                    Log.e("wingoku", e.getLocalizedMessage());
-                }
-            }
-        }).start();
+
+                    @Override
+                    public void onError(Throwable throwable) {
+                        Log.i("wingoku", "subscribeWith():: onError");
+                        //Log.e("wingoku", "inside on error: "+ throwable.getLocalizedMessage());
+                        throwable.printStackTrace();
+                        onClientDisconnectedToTheServer();
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        //Log.e("wingoku", "inside on complete");
+                        Log.v("wingoku", "subscribeWith():: onComplete");
+                    }
+                });
+
+        mCompositeDisposable.add(disposable);
+//            mGRPCManager.sendMessageToServer();
     }
 
-    private void initStubAndObserver() {
-        asyncStub = WingokuServiceGrpc.newStub(channel);
-        requestStreamObserver = asyncStub.messages(new StreamObserver<Response>() {
-            @Override
-            public void onNext(Response response) { //similar to onNext on java side
-                Log.e("MainActivityFragment", "Client onNext");
-                Log.e("MainActivityFragment", "Response from server: (" + response.getResponseMessage() + ") System.currentTimeMillis: " + System.currentTimeMillis());
-            }
+   private void onClientConnectedToTheServer() {
+        Log.i("wingoku", "onClientConnectedToTheServer() for channel: "+ mGRPCManager.getChannel());
+       //Log.v("wingokuBenchmark", "onClientConnectedToTheServer for benchmarkCycle: "+mTimesBenchmarkRanSofar);
+       isClientConnected = true;
+       connectionEstablishedTime = System.currentTimeMillis();
+//                        //Log.e("wingoku", "ConnectivityState = "+state.name()+"/CONNECTED!! at time(msec): "+ connectionEstablishedTime);
+       long diff = connectionEstablishedTime - connectionRequestTime;
+//       //Log.d("wingokuBenchMark", "connectionRequestTime: " + connectionRequestTime + " | connectionEstablishedTime: " + connectionEstablishedTime + " | difference: " + diff + " for benchmarkCycle: "+mTimesBenchmarkRanSofar);
+       timeDifferenceList.add(diff);
+       onClientConnectedToTheServerBenchmark();
+   }
 
-            @Override
-            public void onError(Throwable throwable) {
-                Log.e("MainActivityFragment", "Client onError");
-                throwable.printStackTrace();
-            }
+   private void onClientDisconnectedToTheServer() {
+       Log.i("wingoku", "onClientDisconnectedToTheServer() for channel: "+ mGRPCManager.getChannel());
+       isClientConnected = false;
+       //Log.v("wingokuBenchmark", "onClientDisconnectedToTheServer for benchmarkCycle: "+mTimesBenchmarkRanSofar);
+       onClientDisconnectedToTheServerBenchmark();
+   }
 
+   private void onClientConnectedToTheServerBenchmark() {
+       disconnectFromServerBenchmark();
+   }
+
+   private void onClientDisconnectedToTheServerBenchmark() {
+        Log.i("wingoku", "onClientDisconnectedToTheServerBenchmark() benchmark cycles: "+ mTimesBenchmarkRanSofar);
+       //Log.v("wingokuBench", "numberOfTimesToRunBenchmark: "+ numberOfTimesToRunBenchmark+" mTimesBenchmarkRanSofar: "+mTimesBenchmarkRanSofar);
+       if(mTimesBenchmarkRanSofar>=numberOfTimesToRunBenchmark) {
+           stopBenchmark();
+           return;
+       }
+
+       mTimesBenchmarkRanSofar++;
+       reOpenChannelFromServerBenchmark();
+   }
+
+    @OnClick(R.id.button_reconnect)
+    public void onReconnectToServer(View v) {
+       mGRPCManager.reconnectToServer();
+    }
+
+    private void disconnectFromServerBenchmark() {
+        //Log.v("wingoku", "disconnectFromServerBenchmark");
+        Completable.timer(2, TimeUnit.SECONDS).subscribe(new Action() {
             @Override
-            public void onCompleted() {
-                Log.e("MainActivityFragment", "Client OnComplete");
+            public void run() throws Exception {
+                mGRPCManager.disconnectFromServer();
             }
         });
     }
 
-    private void sendMessageToServer() {
-        if(asyncStub == null && requestStreamObserver == null) {
-            initStubAndObserver();
-        }
-        requestStreamObserver.onNext(Request.newBuilder().setRequestMessage("message from client").build());
-    }
-
-    @OnClick(R.id.button_reconnect)
-    public void onReconnectToServer(View v) {
-        requestStreamObserver.onCompleted();
-        if(channel != null) {
-            initStubAndObserver();
-        }
-        mReconnectButton.setEnabled(false);
-    }
-
-    private void disconnectFromServerBenchmark() {
-        requestStreamObserver.onCompleted();
-        try {
-            channel.awaitTermination(1, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        channel.shutdown();
-        asyncStub = null;
-        requestStreamObserver = null;
-        channel = null;
-    }
-
     private void reOpenChannelFromServerBenchmark() {
-        sendRequestToServer();
+        //Log.v("wingokuBench", "Reconnect to the server");
+        if(!BENCHMARK_MODE)
+            return;
+
+        Completable.timer(2, TimeUnit.SECONDS).subscribe(new Action() {
+            @Override
+            public void run() throws Exception {
+                sendRequestToServer();
+            }
+        });
+
     }
 
     @OnClick(R.id.button_disconnect)
     public void onDisconnectFromServer(View v) {
-        requestStreamObserver.onCompleted();
-        try {
-            channel.awaitTermination(1, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        channel.shutdown();
+        //Log.e("wingoku", "onDisconnectFromSErver");
+        mGRPCManager.disconnectFromServer();
         mDisconnectButton.setEnabled(false);
         mReconnectButton.setEnabled(true);
-        asyncStub = null;
-        requestStreamObserver = null;
-        channel = null;
-    }
-
-    private void onPreExecute() {
-//        mSendButton.setEnabled(false);
-
-        String newHost = mServerHostEditText.getText().toString();
-        if (!mHost.equals(newHost)) {
-            mHost = newHost;
-            shutdownChannel();
-        }
-        if (TextUtils.isEmpty(mHost)) {
-            log("ERROR: empty host name!");
-//            cancel(true);
-            return;
-        }
-
-        String portString = mServerPortEditText.getText().toString();
-        if (TextUtils.isEmpty(portString)) {
-            log("ERROR: empty port");
-//            cancel(true);
-            return;
-        }
-
-        try {
-            int newPort = Integer.parseInt(portString);
-            if (mPort != newPort) {
-                mPort = newPort;
-                shutdownChannel();
-            }
-        } catch (NumberFormatException ex) {
-            log("ERROR: invalid port");
-//            cancel(true);
-            return;
-        }
-
-        log("Sending hello to server...");
     }
 
     private void log ( String logMessage ) {
         mLogText.append("\n" + logMessage);
     }
 
-    private void shutdownChannel () {/*
-        if (mChannel != null) {
-            try {
-                mChannel.shutdown().awaitTerminated(1, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                // FIXME this call seems fishy as it interrupts the main thread
-                Thread.currentThread().interrupt();// NOT A GOOD PRACTICE BUT A TEMPORARY WORKAROUND
-            }
-        }
-        mChannel = null;*/
+    private void disableButtonsAndEditText() {
+        mReconnectButton.setEnabled(false);
+        mDisconnectButton.setEnabled(false);
+        mOpenChannelButton.setEnabled(false);
+        mBenchmarkButton.setEnabled(false);
+
+        mServerPortEditText.setEnabled(false);
+        mConnectionTimesET.setEnabled(false);
+        mServerPortEditText.setEnabled(false);
     }
 
-    /*private class SendHelloTask extends AsyncTask<Void, Void, String> {
+    private void enableButtonsAndEditText() {
+        mReconnectButton.setEnabled(true);
+        mDisconnectButton.setEnabled(true);
+        mOpenChannelButton.setEnabled(true);
+        mBenchmarkButton.setEnabled(true);
 
-        private String mHost = "";
-        private int mPort = -1;
-
-        @Override
-        protected void onPreExecute () {
-            mSendButton.setEnabled(false);
-
-            String newHost = mServerHostEditText.getText().toString();
-            if (!mHost.equals(newHost)) {
-                mHost = newHost;
-                shutdownChannel();
-            }
-            if (TextUtils.isEmpty(mHost)) {
-                log("ERROR: empty host name!");
-                cancel(true);
-                return;
-            }
-
-            String portString = mServerPortEditText.getText().toString();
-            if (TextUtils.isEmpty(portString)) {
-                log("ERROR: empty port");
-                cancel(true);
-                return;
-            }
-
-            try {
-                int newPort = Integer.parseInt(portString);
-                if (mPort != newPort) {
-                    mPort = newPort;
-                    shutdownChannel();
-                }
-            } catch (NumberFormatException ex) {
-                log("ERROR: invalid port");
-                cancel(true);
-                return;
-            }
-
-            log("Sending hello to server...");
-        }
-
-        @Override
-        protected String doInBackground ( Void... params ) {
-            try {
-                if (mChannel == null) {
-                    mChannel = OkHttpChannelBuilder.forAddress(mHost, mPort).build();
-                }
-                WingokuServiceGrpc.WingokuServiceStub greeterStub =  WingokuServiceGrpc.newStub(mChannel);
-                Request helloRequest = Request.newBuilder().setRequestMessage("Android").build();
-
-                Response helloResponse = greeterStub.(helloRequest);
-                return "SERVER: " + helloResponse.getGreeting();
-            } catch ( SecurityException | UncheckedExecutionException e ) {
-                e.printStackTrace();
-                return "ERROR: " + e.getMessage();
-            }
-        }
-
-        @Override
-        protected void onPostExecute ( String s ) {
-            shutdownChannel();
-            log(s);
-            mSendButton.setEnabled(true);
-        }
-
-        @Override
-        protected void onCancelled () {
-            mSendButton.setEnabled(true);
-        }
-    }*/
+        mServerPortEditText.setEnabled(true);
+        mConnectionTimesET.setEnabled(true);
+        mServerPortEditText.setEnabled(true);
+    }
 }
